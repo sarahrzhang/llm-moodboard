@@ -1,10 +1,16 @@
 'use client';
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import type { LLMOut, SnapshotInput } from "@/lib/schema";
 import { MoodBoard } from "@/components/MoodBoard";
 
-type Track = { id:string; name:string; artists:string[]; image?:string };
+type Track = { 
+  id:string; 
+  name:string; 
+  artists:string[]; 
+  image?:string;  
+  scores?: { hype: number; focus: number; chill: number }
+};
 
 export default function Page() {
   const [loading, setLoading] = useState(false);
@@ -15,7 +21,24 @@ export default function Page() {
   const [hasToken, setHasToken] = useState<boolean>(true);
   const [mode, setMode] = useState<"hype"|"focus"|"chill">("hype");
 
-  // fetch tracks whenever `mode` changes (and on first render)
+  // Sort & project to your old prop shape
+  const visibleAlbums = useMemo(() => {
+    if (!albums?.length) return [];
+    // If server sent scores, sort by the selected mode; otherwise keep order.
+    const sorted = albums[0]?.scores
+      ? [...albums].sort(
+          (a, b) => (b.scores?.[mode] ?? 0) - (a.scores?.[mode] ?? 0)
+        )
+      : albums;
+     // Project back to your OLD prop shape for MoodBoard
+    return sorted.map(t => ({
+      image: t.image,
+      name: t.name,
+      artists: t.artists,
+    }));
+  }, [albums, mode]);
+
+  // fetch tracks on mode change (and on first render)
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -29,6 +52,12 @@ export default function Page() {
         return;
       }
       const j = await res.json();
+      // TODO: for debugging
+      console.log("API mode", mode, j.tracks?.slice(0,3)?.map((t:any)=>t.name));
+      if (!('scores' in (j.tracks?.[0] || {}))) {
+        console.warn("No `scores` on tracks; client sort will be a no-op.");
+      }
+
       if (j.error && !j.tracks?.length) {
         setError(j.message || "No tracks available.");
         setAlbums([]);
@@ -119,7 +148,7 @@ export default function Page() {
 
             {error && <div className="text-sm text-red-300">{error}</div>}
 
-            <MoodBoard data={out} albums={albums}/>
+            <MoodBoard data={out} albums={visibleAlbums} mode={mode}/>
           </div>
         )}
 

@@ -3,7 +3,13 @@
 import { useState } from "react";
 import type { LLMOut } from "@/lib/schema";
 
-export function MoodBoard({ data, albums }:{ data: LLMOut | null, albums: {image?:string; name:string; artists:string[]}[] }) {
+type Props = {
+  data: LLMOut | null;                
+  albums: { image?: string; name: string; artists: string[] }[];
+  mode?: "hype" | "focus" | "chill"; // ⬅️ new
+};
+
+export function MoodBoard({ data, albums, mode}: Props ) {
   const [showWhy, setShowWhy] = useState(false);
 
   if (!data) return null;
@@ -47,6 +53,7 @@ export function MoodBoard({ data, albums }:{ data: LLMOut | null, albums: {image
           <p>Reasoned from energy, valence, and danceability across your most recent tracks.</p>
         </div>
       )}
+      {mode && <div className="text-sm opacity-70 mb-2">Mode: {mode.toUpperCase()}</div>}
 
       <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
         {albums.slice(0,15).map((a,i)=>(
