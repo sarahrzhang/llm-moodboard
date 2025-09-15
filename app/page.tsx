@@ -3,14 +3,8 @@
 import { useEffect, useState, useMemo } from "react";
 import type { LLMOut, SnapshotInput } from "@/lib/schema";
 import { MoodBoard } from "@/components/MoodBoard";
-
-type Track = {
-  id: string;
-  name: string;
-  artists: string[];
-  image?: string;
-  scores?: { hype: number; focus: number; chill: number };
-};
+import { Track } from "./types/tracks";
+import { Mood } from "./types/mood";
 
 export default function Page() {
   const [loading, setLoading] = useState(false);
@@ -19,7 +13,7 @@ export default function Page() {
   const [out, setOut] = useState<LLMOut | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasToken, setHasToken] = useState<boolean>(true);
-  const [mode, setMode] = useState<"hype" | "focus" | "chill">("hype");
+  const [mood, setMood] = useState<Mood>(Mood.HYPE);
 
   // Sort & project to your old prop shape
   const visibleAlbums = useMemo(() => {
@@ -27,7 +21,7 @@ export default function Page() {
     // If server sent scores, sort by the selected mode; otherwise keep order.
     const sorted = albums[0]?.scores
       ? [...albums].sort(
-          (a, b) => (b.scores?.[mode] ?? 0) - (a.scores?.[mode] ?? 0),
+          (a, b) => (b.scores?.[mood] ?? 0) - (a.scores?.[mood] ?? 0),
         )
       : albums;
     // Project back to your OLD prop shape for MoodBoard
@@ -36,16 +30,15 @@ export default function Page() {
       name: t.name,
       artists: t.artists,
     }));
-  }, [albums, mode]);
+  }, [albums, mood]);
 
-  // fetch tracks on mode change (and on first render)
+  // fetch tracks on mood change (and on first render)
   useEffect(() => {
     (async () => {
       setLoading(true);
       setError(null);
-      // If your route file is /app/api/spotify/recent/route.ts, keep the path below.
-      // If you put the mode-aware handler somewhere else, update the URL to match.
-      const res = await fetch(`/api/spotify/recent?mode=${mode}`, {
+
+      const res = await fetch(`/api/spotify/recent?mode=${mood}`, {
         cache: "no-store",
       });
       if (res.status === 401) {
@@ -57,7 +50,7 @@ export default function Page() {
       // TODO: for debugging
       console.log(
         "API mode",
-        mode,
+        mood,
         j.tracks?.slice(0, 3)?.map((t: any) => t.name),
       );
       if (!("scores" in (j.tracks?.[0] || {}))) {
@@ -81,18 +74,18 @@ export default function Page() {
       });
       setLoading(false);
     })();
-  }, [mode]); // watching mode for changes
+  }, [mood]); // watching mood for changes
 
   const analyze = async () => {
     if (!snap) return;
     setLoading(true);
     setError(null);
     try {
-      // keep your lightweight “mode” tweak before sending to /api/analyze
+      // keep your lightweight “mood” tweak before sending to /api/analyze
       const tweak = { ...snap };
-      if (mode === "focus")
+      if (mood === "focus")
         tweak.stats.energy_avg = Math.max(0, tweak.stats.energy_avg - 0.2);
-      if (mode === "chill") {
+      if (mood === "chill") {
         tweak.stats.energy_avg = Math.max(0, tweak.stats.energy_avg - 0.3);
         tweak.stats.valence_avg = Math.max(0, tweak.stats.valence_avg - 0.05);
       }
@@ -140,26 +133,26 @@ export default function Page() {
             <div className="flex items-center gap-2">
               <span className="text-sm">Mode:</span>
               <button
-                onClick={() => setMode("hype")}
+                onClick={() => setMood(Mood.HYPE)}
                 disabled={loading}
-                className={`px-2 py-1 rounded ${mode === "hype" ? "bg-white/20" : "bg-white/10"} disabled:opacity-60`}
-                aria-pressed={mode === "hype"}
+                className={`px-2 py-1 rounded ${mood === "hype" ? "bg-white/20" : "bg-white/10"} disabled:opacity-60`}
+                aria-pressed={mood === "hype"}
               >
                 Hype
               </button>
               <button
-                onClick={() => setMode("focus")}
+                onClick={() => setMood(Mood.FOCUS)}
                 disabled={loading}
-                className={`px-2 py-1 rounded ${mode === "focus" ? "bg-white/20" : "bg-white/10"} disabled:opacity-60`}
-                aria-pressed={mode === "focus"}
+                className={`px-2 py-1 rounded ${mood === "focus" ? "bg-white/20" : "bg-white/10"} disabled:opacity-60`}
+                aria-pressed={mood === "focus"}
               >
                 Focus
               </button>
               <button
-                onClick={() => setMode("chill")}
+                onClick={() => setMood(Mood.CHILL)}
                 disabled={loading}
-                className={`px-2 py-1 rounded ${mode === "chill" ? "bg-white/20" : "bg-white/10"} disabled:opacity-60`}
-                aria-pressed={mode === "chill"}
+                className={`px-2 py-1 rounded ${mood === "chill" ? "bg-white/20" : "bg-white/10"} disabled:opacity-60`}
+                aria-pressed={mood === "chill"}
               >
                 Chill
               </button>
@@ -185,7 +178,7 @@ export default function Page() {
 
             {error && <div className="text-sm text-red-300">{error}</div>}
 
-            <MoodBoard data={out} albums={visibleAlbums} mode={mode} />
+            <MoodBoard data={out} albums={visibleAlbums} mode={mood} />
           </div>
         )}
 

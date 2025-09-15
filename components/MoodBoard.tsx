@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import type { LLMOut } from "@/lib/schema";
+import { Album } from "../app/types/tracks";
+import { Mood } from "../app/types/mood";
 
 type Props = {
   data: LLMOut | null;
-  albums: { image?: string; name: string; artists: string[] }[];
-  mode?: "hype" | "focus" | "chill"; // ⬅️ new
+  albums: Album[];
+  mode?: Mood;
 };
 
 export function MoodBoard({ data, albums, mode }: Props) {
