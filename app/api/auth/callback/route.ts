@@ -18,13 +18,13 @@ export async function GET(req: NextRequest) {
     code,
     client_id: clientId,
     redirect_uri: redirectUri,
-    code_verifier: verifier
+    code_verifier: verifier,
   });
 
   const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body
+    body,
   });
 
   if (!tokenRes.ok) {
@@ -40,13 +40,13 @@ export async function GET(req: NextRequest) {
       access_token: tokenJson.access_token,
       refresh_token: tokenJson.refresh_token,
       expires_in: tokenJson.expires_in,
-      obtained_at: Date.now()
+      obtained_at: Date.now(),
     }),
     httpOnly: true,
     secure: true,
     sameSite: "lax",
     path: "/",
-    maxAge: 7 * 24 * 3600
+    maxAge: 7 * 24 * 3600,
   });
 
   // clear verifier

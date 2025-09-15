@@ -1,15 +1,15 @@
-'use client';
+"use client";
 
 import { useEffect, useState, useMemo } from "react";
 import type { LLMOut, SnapshotInput } from "@/lib/schema";
 import { MoodBoard } from "@/components/MoodBoard";
 
-type Track = { 
-  id:string; 
-  name:string; 
-  artists:string[]; 
-  image?:string;  
-  scores?: { hype: number; focus: number; chill: number }
+type Track = {
+  id: string;
+  name: string;
+  artists: string[];
+  image?: string;
+  scores?: { hype: number; focus: number; chill: number };
 };
 
 export default function Page() {
@@ -19,7 +19,7 @@ export default function Page() {
   const [out, setOut] = useState<LLMOut | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasToken, setHasToken] = useState<boolean>(true);
-  const [mode, setMode] = useState<"hype"|"focus"|"chill">("hype");
+  const [mode, setMode] = useState<"hype" | "focus" | "chill">("hype");
 
   // Sort & project to your old prop shape
   const visibleAlbums = useMemo(() => {
@@ -27,11 +27,11 @@ export default function Page() {
     // If server sent scores, sort by the selected mode; otherwise keep order.
     const sorted = albums[0]?.scores
       ? [...albums].sort(
-          (a, b) => (b.scores?.[mode] ?? 0) - (a.scores?.[mode] ?? 0)
+          (a, b) => (b.scores?.[mode] ?? 0) - (a.scores?.[mode] ?? 0),
         )
       : albums;
-     // Project back to your OLD prop shape for MoodBoard
-    return sorted.map(t => ({
+    // Project back to your OLD prop shape for MoodBoard
+    return sorted.map((t) => ({
       image: t.image,
       name: t.name,
       artists: t.artists,
@@ -45,7 +45,9 @@ export default function Page() {
       setError(null);
       // If your route file is /app/api/spotify/recent/route.ts, keep the path below.
       // If you put the mode-aware handler somewhere else, update the URL to match.
-      const res = await fetch(`/api/spotify/recent?mode=${mode}`, { cache: "no-store" });
+      const res = await fetch(`/api/spotify/recent?mode=${mode}`, {
+        cache: "no-store",
+      });
       if (res.status === 401) {
         setHasToken(false);
         setLoading(false);
@@ -53,8 +55,12 @@ export default function Page() {
       }
       const j = await res.json();
       // TODO: for debugging
-      console.log("API mode", mode, j.tracks?.slice(0,3)?.map((t:any)=>t.name));
-      if (!('scores' in (j.tracks?.[0] || {}))) {
+      console.log(
+        "API mode",
+        mode,
+        j.tracks?.slice(0, 3)?.map((t: any) => t.name),
+      );
+      if (!("scores" in (j.tracks?.[0] || {}))) {
         console.warn("No `scores` on tracks; client sort will be a no-op.");
       }
 
@@ -71,7 +77,7 @@ export default function Page() {
         stats: j.stats,
         top_artists: j.top_artists ?? [],
         top_genres: j.top_genres ?? [],
-        examples: j.examples ?? []
+        examples: j.examples ?? [],
       });
       setLoading(false);
     })();
@@ -84,12 +90,16 @@ export default function Page() {
     try {
       // keep your lightweight “mode” tweak before sending to /api/analyze
       const tweak = { ...snap };
-      if (mode === "focus") tweak.stats.energy_avg = Math.max(0, tweak.stats.energy_avg - 0.2);
-      if (mode === "chill") { tweak.stats.energy_avg = Math.max(0, tweak.stats.energy_avg - 0.3); tweak.stats.valence_avg = Math.max(0, tweak.stats.valence_avg - 0.05); }
+      if (mode === "focus")
+        tweak.stats.energy_avg = Math.max(0, tweak.stats.energy_avg - 0.2);
+      if (mode === "chill") {
+        tweak.stats.energy_avg = Math.max(0, tweak.stats.energy_avg - 0.3);
+        tweak.stats.valence_avg = Math.max(0, tweak.stats.valence_avg - 0.05);
+      }
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(tweak)
+        body: JSON.stringify(tweak),
       });
       const j = await res.json();
       setOut(j);
@@ -100,7 +110,9 @@ export default function Page() {
     }
   };
 
-  const login = () => { window.location.href = "/api/auth/login"; };
+  const login = () => {
+    window.location.href = "/api/auth/login";
+  };
 
   return (
     <main className="min-h-screen p-6 md:p-10">
@@ -111,8 +123,15 @@ export default function Page() {
 
         {!hasToken && (
           <div className="rounded-lg p-4 bg-white/5 border border-white/10">
-            <p className="mb-2">Sign in with Spotify to analyze your recent listening.</p>
-            <button onClick={login} className="px-3 py-2 rounded bg-white/10 hover:bg-white/20 transition">Sign in with Spotify</button>
+            <p className="mb-2">
+              Sign in with Spotify to analyze your recent listening.
+            </p>
+            <button
+              onClick={login}
+              className="px-3 py-2 rounded bg-white/10 hover:bg-white/20 transition"
+            >
+              Sign in with Spotify
+            </button>
           </div>
         )}
 
@@ -121,34 +140,52 @@ export default function Page() {
             <div className="flex items-center gap-2">
               <span className="text-sm">Mode:</span>
               <button
-                onClick={()=>setMode("hype")}
+                onClick={() => setMode("hype")}
                 disabled={loading}
-                className={`px-2 py-1 rounded ${mode==="hype"?"bg-white/20":"bg-white/10"} disabled:opacity-60`}
-                aria-pressed={mode==="hype"}
-              >Hype</button>
+                className={`px-2 py-1 rounded ${mode === "hype" ? "bg-white/20" : "bg-white/10"} disabled:opacity-60`}
+                aria-pressed={mode === "hype"}
+              >
+                Hype
+              </button>
               <button
-                onClick={()=>setMode("focus")}
+                onClick={() => setMode("focus")}
                 disabled={loading}
-                className={`px-2 py-1 rounded ${mode==="focus"?"bg-white/20":"bg-white/10"} disabled:opacity-60`}
-                aria-pressed={mode==="focus"}
-              >Focus</button>
+                className={`px-2 py-1 rounded ${mode === "focus" ? "bg-white/20" : "bg-white/10"} disabled:opacity-60`}
+                aria-pressed={mode === "focus"}
+              >
+                Focus
+              </button>
               <button
-                onClick={()=>setMode("chill")}
+                onClick={() => setMode("chill")}
                 disabled={loading}
-                className={`px-2 py-1 rounded ${mode==="chill"?"bg-white/20":"bg-white/10"} disabled:opacity-60`}
-                aria-pressed={mode==="chill"}
-              >Chill</button>
-              {loading && <span className="text-xs opacity-70 ml-2">Updating…</span>}
+                className={`px-2 py-1 rounded ${mode === "chill" ? "bg-white/20" : "bg-white/10"} disabled:opacity-60`}
+                aria-pressed={mode === "chill"}
+              >
+                Chill
+              </button>
+              {loading && (
+                <span className="text-xs opacity-70 ml-2">Updating…</span>
+              )}
             </div>
 
             <div className="flex items-center gap-3">
-              <button disabled={loading || !snap} onClick={analyze} className="px-3 py-2 rounded bg-white/10 hover:bg-white/20 transition disabled:opacity-60">Analyze with AI</button>
-              {loading && <span className="text-sm opacity-70 animate-pulse">Working…</span>}
+              <button
+                disabled={loading || !snap}
+                onClick={analyze}
+                className="px-3 py-2 rounded bg-white/10 hover:bg-white/20 transition disabled:opacity-60"
+              >
+                Analyze with AI
+              </button>
+              {loading && (
+                <span className="text-sm opacity-70 animate-pulse">
+                  Working…
+                </span>
+              )}
             </div>
 
             {error && <div className="text-sm text-red-300">{error}</div>}
 
-            <MoodBoard data={out} albums={visibleAlbums} mode={mode}/>
+            <MoodBoard data={out} albums={visibleAlbums} mode={mode} />
           </div>
         )}
 

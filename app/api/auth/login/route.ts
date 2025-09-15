@@ -19,10 +19,12 @@ export async function GET() {
     secure: true,
     sameSite: "lax",
     path: "/",
-    maxAge: 10 * 60
+    maxAge: 10 * 60,
   });
 
-  const scope = encodeURIComponent("user-read-recently-played user-read-email user-top-read playlist-read-private");
+  const scope = encodeURIComponent(
+    "user-read-recently-played user-read-email user-top-read playlist-read-private",
+  );
   const authUrl = `https://accounts.spotify.com/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge_method=S256&code_challenge=${challenge}&scope=${scope}`;
 
   return NextResponse.redirect(authUrl);

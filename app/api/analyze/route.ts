@@ -13,10 +13,14 @@ function rulesFallback(input: any): LLMOut {
   const mood_tags = [
     v > 0.6 ? "sunny" : v < 0.4 ? "moody" : "neutral",
     e > 0.6 ? "hype" : e < 0.4 ? "chill" : "even",
-    d > 0.6 ? "danceable" : d < 0.4 ? "floaty" : "groovy"
+    d > 0.6 ? "danceable" : d < 0.4 ? "floaty" : "groovy",
   ];
-  const primary_caption = energy_band === "high" ? "High-energy, upbeat grooves keep you moving."
-    : energy_band === "low" ? "Soft, reflective tracks for winding down." : "Balanced, bright rhythm with room to breathe.";
+  const primary_caption =
+    energy_band === "high"
+      ? "High-energy, upbeat grooves keep you moving."
+      : energy_band === "low"
+        ? "Soft, reflective tracks for winding down."
+        : "Balanced, bright rhythm with room to breathe.";
   return {
     mood_tags,
     activities: ["coding", "commute", "gym warmup"],
@@ -24,8 +28,15 @@ function rulesFallback(input: any): LLMOut {
     top_motifs: ["steady kick", "catchy hooks"],
     primary_caption,
     alt_captions: ["Sun’s out, beats up.", "Calm focus, steady pulse."],
-    playlist_titles: ["Ship Mode", "Sunlit Sprints", "Deep Work Glow", "Night Drive", "Lo-Fi Lift"],
-    cover_prompt: "minimalist vector of sunrise over city skyline with subtle equalizer bars"
+    playlist_titles: [
+      "Ship Mode",
+      "Sunlit Sprints",
+      "Deep Work Glow",
+      "Night Drive",
+      "Lo-Fi Lift",
+    ],
+    cover_prompt:
+      "minimalist vector of sunrise over city skyline with subtle equalizer bars",
   };
 }
 
@@ -44,21 +55,27 @@ export async function POST(req: NextRequest) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${key}`
+        Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
         model: "gpt-5",
         // model: "gpt-4o-mini",
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: [
-              { type: "text", text: "Analyze this listening snapshot and produce JSON that matches the schema." },
-              { type: "text", text: JSON.stringify(input) }
-            ]}
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Analyze this listening snapshot and produce JSON that matches the schema.",
+              },
+              { type: "text", text: JSON.stringify(input) },
+            ],
+          },
         ],
         temperature: 0.7,
-        response_format: { type: "json_object" }
-      })
+        response_format: { type: "json_object" },
+      }),
     });
 
     const j = await resp.json();

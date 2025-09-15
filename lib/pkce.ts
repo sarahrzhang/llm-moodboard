@@ -1,7 +1,11 @@
 import crypto from "crypto";
 
 export function base64url(input: Buffer) {
-  return input.toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return input
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
 }
 
 export function generateVerifier(length = 64) {

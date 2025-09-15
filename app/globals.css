@@ -7,7 +7,11 @@
   --fg: #f3f4f6;
 }
 
-html, body, #__next { height: 100%; }
+html,
+body,
+#__next {
+  height: 100%;
+}
 
 body {
   color: var(--fg);

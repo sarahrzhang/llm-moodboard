@@ -8,7 +8,7 @@ export const OutputSchema = z.object({
   primary_caption: z.string().max(120),
   alt_captions: z.array(z.string()).max(5),
   playlist_titles: z.array(z.string()).max(7),
-  cover_prompt: z.string().max(180)
+  cover_prompt: z.string().max(180),
 });
 
 export type LLMOut = z.infer<typeof OutputSchema>;
