@@ -1,17 +1,12 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { ensureAccessToken } from "@/lib/spotify";
+import { clamp01, minmax, norm, range, scoreTrackNorm, tieBreak } from "@/app/utils/scoring";
+import { Mood } from "@/app/types/mood";
 
 export const runtime = "nodejs";
 
-// ---------- helpers ----------
-function clamp01(x: number) {
-  return Math.max(0, Math.min(1, x));
-}
-function centerPref(x: number) {
-  return clamp01(1 - Math.abs(x - 0.5) * 2);
-}
-type Mode = "hype" | "focus" | "chill";
+type SourceParam = "auto" | "on_repeat" | "top" | "recent" | "repeat_derived"
 
 async function readJSON(r: Response) {
   const t = await r.text().catch(() => "");
@@ -22,77 +17,56 @@ async function readJSON(r: Response) {
   }
 }
 
-function range(list: any[], key: string) {
-  const vals = list
-    .map((f) => f?.[key] ?? null)
-    .filter((v: any) => typeof v === "number" && !Number.isNaN(v));
-  if (!vals.length) return { min: 0, max: 1 };
-  return { min: Math.min(...vals), max: Math.max(...vals) };
-}
-function minmax(v: number | undefined, min: number, max: number) {
-  if (v == null || Number.isNaN(v)) return 0.5; // neutral center
-  if (max <= min) return 0.5;
-  return (v - min) / (max - min);
-}
-
-function scoreTrackNorm(fN: any, mode: Mode) {
-  const { energyN, danceN, valenceN, tempoN, acousticN, instrN, speechN } = fN;
-
-  if (mode === "hype") {
-    // big energy/dance, faster tempo, brighter mood
-    return 0.5 * energyN + 0.2 * danceN + 0.2 * tempoN + 0.1 * valenceN;
-  }
-  if (mode === "focus") {
-    // instrumental, low speech; aim for mid energy/tempo to avoid hype & sleep
-    return (
-      0.5 * instrN +
-      0.25 * (1 - speechN) +
-      0.15 * centerPref(energyN) +
-      0.1 * centerPref(tempoN)
-    );
-  }
-  // chill: low energy/tempo, acoustic texture, pleasant valence
-  return (
-    0.45 * (1 - energyN) +
-    0.25 * acousticN +
-    0.2 * (1 - tempoN) +
-    0.1 * valenceN
-  );
-}
-
-// tie-breakers when two scores are nearly equal
-function tieBreak(a: any, b: any, mode: Mode) {
-  const eps = 1e-3;
-  if (mode === "hype") {
-    const d1 = b.featuresN.energyN - a.featuresN.energyN;
-    if (Math.abs(d1) > eps) return d1;
-    const d2 = b.featuresN.tempoN - a.featuresN.tempoN;
-    if (Math.abs(d2) > eps) return d2;
-    const d3 = b.featuresN.danceN - a.featuresN.danceN;
-    if (Math.abs(d3) > eps) return d3;
-  } else if (mode === "focus") {
-    const d1 = b.featuresN.instrN - a.featuresN.instrN;
-    if (Math.abs(d1) > eps) return d1;
-    const d2 = 1 - b.featuresN.speechN - (1 - a.featuresN.speechN);
-    if (Math.abs(d2) > eps) return d2;
-    const d3 =
-      centerPref(b.featuresN.energyN) - centerPref(a.featuresN.energyN);
-    if (Math.abs(d3) > eps) return d3;
-  } else {
-    const d1 = 1 - b.featuresN.energyN - (1 - a.featuresN.energyN);
-    if (Math.abs(d1) > eps) return d1;
-    const d2 = b.featuresN.acousticN - a.featuresN.acousticN;
-    if (Math.abs(d2) > eps) return d2;
-    const d3 = b.featuresN.valenceN - a.featuresN.valenceN;
-    if (Math.abs(d3) > eps) return d3;
-  }
-  return a.name.localeCompare(b.name); // stable deterministic
-}
-
 // ---------- spotify fetchers ----------
-async function fetchOnRepeatTracks(headers: Record<string, string>) {
+async function fetchRecentlyPlayedWithStats(headers: Record<string, string>) {
+  const pages = 3; // ~150 plays
+  const all: any[] = [];
+  let url: string | null =
+    "https://api.spotify.com/v1/me/player/recently-played?limit=50";
+  for (let i = 0; i < pages && url; i++) {
+    const r = await fetch(url, { headers, cache: "no-store" });
+    if (!r.ok) break;
+    const j = await r.json();
+    const items = (j?.items ?? [])
+      .map((x: any) => x?.track)
+      .filter((t: any) => t && t.type === "track" && typeof t.id === "string");
+    all.push(...items);
+    const last = (j?.items ?? [])[(j?.items?.length ?? 0) - 1]?.played_at;
+    url = last
+      ? `https://api.spotify.com/v1/me/player/recently-played?limit=50&before=${encodeURIComponent(last)}`
+      : null;
+  }
+  // per-track stats
+  // count (how many times in the window)
+  // recency (exponentially decayed, so fresh listens matter more)
+  const stats = new Map<string, { count: number; recency: number }>();
+  for (let i = 0; i < all.length; i++) {
+    const t = all[i];
+    const w = Math.pow(0.98, i); // decay by recency
+    const cur = stats.get(t.id) ?? { count: 0, recency: 0 };
+    cur.count += 1;
+    cur.recency += w;
+    stats.set(t.id, cur);
+  }
+
+  // distinct tracks in the order they appeared most recently
+  const seen = new Set<string>();
+  const distinct = all
+    .filter((t) => !seen.has(t.id) && seen.add(t.id))
+    .slice(0, 50);
+
+  return { tracks: distinct, rpStatsById: stats };
+}
+
+// TODO: needs work, not reliable as "made for you" playlist may not show up in /playlist
+// on repeat - only works if user has followed "On Repeat" playlist
+async function fetchOnRepeatTracks(
+  headers: Record<string, string>,
+  startOffset: number = 0,
+) {
   try {
-    let url: string | null = "https://api.spotify.com/v1/me/playlists?limit=50";
+    let url: string | null =
+      `https://api.spotify.com/v1/me/playlists?limit=50&offset=${Math.max(0, startOffset)}`;
     const all: any[] = [];
     for (let i = 0; i < 4 && url; i++) {
       const r = await fetch(url, { headers, cache: "no-store" });
@@ -101,9 +75,11 @@ async function fetchOnRepeatTracks(headers: Record<string, string>) {
       all.push(...(j?.items ?? []));
       url = j?.next ?? null;
     }
-    const onRepeat = all.find(
-      (p: any) => p?.name === "On Repeat" && p?.owner?.id === "spotify",
+
+    const onRepeat = all.find((p: any) =>
+      /\bon\s*repeat\b/i.test(p?.name ?? ""),
     );
+    // const onRepeat = '37i9dQZF1Eprcdla8LfTWX';
     if (!onRepeat?.id) return [];
     let tracks: any[] = [];
     let tUrl: string | null =
@@ -113,7 +89,11 @@ async function fetchOnRepeatTracks(headers: Record<string, string>) {
       if (!r.ok) break;
       const j = await readJSON(r);
       tracks = tracks.concat(
-        (j?.items ?? []).map((x: any) => x?.track).filter(Boolean),
+        (j?.items ?? [])
+          .map((x: any) => x?.track)
+          .filter(
+            (t: any) => t && t.type === "track" && typeof t.id === "string",
+          ),
       );
       tUrl = j?.next ?? null;
     }
@@ -137,11 +117,17 @@ async function fetchTopTracksShortTerm(headers: Record<string, string>) {
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const modeParam = (url.searchParams.get("mode") ?? "none").toLowerCase();
-  const debug = url.searchParams.get("debug") === "1";
-  const mode: Mode | null = (["hype", "focus", "chill"] as const).includes(
-    modeParam as Mode,
+  const sourceParam = (url.searchParams.get("source") ?? "auto") as SourceParam;
+  // offset helper (for playlist paging; 0-based)
+  const plOffset = Number(url.searchParams.get("pl_offset") ?? "0") || 0;
+  // page helper — 1 page = 50 playlists)
+  const plPage = Number(url.searchParams.get("pl_page") ?? "0") || 0;
+  const startOffset = plOffset || plPage * 50;
+
+  const mode: Mood | null = (["hype", "focus", "chill"] as const).includes(
+    modeParam as Mood,
   )
-    ? (modeParam as Mode)
+    ? (modeParam as Mood)
     : null;
 
   const cookie = cookies().get("spotify_tokens")?.value;
@@ -163,20 +149,37 @@ export async function GET(req: Request) {
   const headers = { Authorization: `Bearer ${tokens.access_token}` };
 
   // get items
-  let items: any[] = await fetchOnRepeatTracks(headers);
-  if (!items.length) items = await fetchTopTracksShortTerm(headers);
-  if (!items.length) {
-    return NextResponse.json(
-      {
-        error: "no_tracks",
-        message:
-          "Grant playlist-read-private and/or user-top-read; also ensure you have listening history.",
-      },
-      { status: 200 },
-    );
+  let items: any[] = [];
+  let rpStatsById = new Map<string, { count: number; recency: number }>();
+  let sourceUsed: SourceParam = sourceParam;
+
+  if (sourceParam === "recent") {
+    const { tracks, rpStatsById: map } =
+      await fetchRecentlyPlayedWithStats(headers);
+    items = tracks;
+    rpStatsById = map; 
+  } else if (sourceParam === "top") {
+    items = await fetchTopTracksShortTerm(headers);
+  } else if (sourceParam === "on_repeat") {
+    items = await fetchOnRepeatTracks(headers, startOffset);
+  } else {
+    // auto
+    items = await fetchOnRepeatTracks(headers);
+    sourceUsed = "on_repeat";
+    if (!items.length) {
+      items = await fetchTopTracksShortTerm(headers);
+      sourceUsed = "top";
+    }
+    if (!items.length) {
+      const r = await fetchRecentlyPlayedWithStats(headers);
+      items = r.tracks;
+      rpStatsById = r.rpStatsById;
+      sourceUsed = "recent";
+    }
   }
 
-  // audio-features
+  // audio-features - endpoint removed by Spotify
+  // derive mood scores by stats instead
   const trackIds = items.map((t: any) => t?.id).filter(Boolean);
   const afRes = trackIds.length
     ? await fetch(
@@ -187,6 +190,9 @@ export async function GET(req: Request) {
   const afJson =
     afRes && afRes.ok ? await readJSON(afRes) : { audio_features: [] };
   const featuresList: any[] = afJson?.audio_features ?? [];
+  const featuresCount = (featuresList ?? []).filter(Boolean).length;
+const scoringMode = featuresCount > 0 ? "spotify_features" : "derived_recent";
+
 
   // build normalization ranges over THIS set
   const R = {
@@ -268,11 +274,37 @@ export async function GET(req: Request) {
       ),
       speechN: minmax(f?.speechiness, R.speechiness.min, R.speechiness.max),
     };
-    const scores = {
-      hype: scoreTrackNorm(featuresN, "hype"),
-      focus: scoreTrackNorm(featuresN, "focus"),
-      chill: scoreTrackNorm(featuresN, "chill"),
-    };
+  
+  // did we actually get features for this track?
+  const hasFeatures = typeof f?.id === "string";
+
+  // recently-played stats (built earlier when source === "recent")
+  const rp = rpStatsById.get(t.id) ?? { count: 0, recency: 0 };
+
+  // simple metadata proxies
+  const popularity = typeof t?.popularity === "number" ? t.popularity : 50;
+  const popN = popularity / 100;
+  const durationMin = (t?.duration_ms ?? 180000) / 60000;
+  const durMid = 1 - Math.min(1, Math.abs(durationMin - 3.5) / 3.5); // best ~3.5m
+
+  // derived scores (non-zero even when audio-features are 0 or blocked)
+  const derived = {
+    // Hype: recent + popular
+    hype:  clamp01(0.5 * norm(rp.recency, 0, 3) + 0.5 * popN),
+    // Focus: mid-length + repeated a bit
+    focus: clamp01(0.6 * durMid + 0.4 * norm(rp.count, 0, 4)),
+    // Chill: less “hitty” + ok with longer songs
+    chill: clamp01(0.5 * (1 - popN) + 0.5 * norm(4.5 - Math.abs(durationMin - 4.5), 0, 4.5)),
+  };
+
+  const scores = hasFeatures
+    ? {
+        hype:  scoreTrackNorm(featuresN, Mood.HYPE),
+        focus: scoreTrackNorm(featuresN, Mood.FOCUS),
+        chill: scoreTrackNorm(featuresN, Mood.CHILL),
+      }
+    : derived;
+
     return {
       id: t?.id,
       name: t?.name,
@@ -285,7 +317,7 @@ export async function GET(req: Request) {
   });
 
   // sort by mode with tie-breakers; push tracks with missing features to end
-  let sorted = tracks.slice();
+  const sorted = tracks.slice();
   if (mode) {
     sorted.sort((a, b) => {
       // if either missing features, de-prioritize
@@ -295,36 +327,14 @@ export async function GET(req: Request) {
       return tieBreak(a, b, mode);
     });
   }
-
-  // examples for your page
-  const examples = items.slice(0, 3).map((t: any) => ({
-    name: t?.name,
-    artist: t?.artists?.[0]?.name ?? "Unknown",
-    genres: [] as string[],
-  }));
-
-  // optional debug: top 5 per mode w/ scores
-  const debugOut = debug
-    ? {
-        hype: sorted
-          .slice(0, 5)
-          .map((t) => ({ name: t.name, score: t.scores.hype.toFixed(3) })),
-        focus: sorted
-          .slice(0, 5)
-          .map((t) => ({ name: t.name, score: t.scores.focus.toFixed(3) })),
-        chill: sorted
-          .slice(0, 5)
-          .map((t) => ({ name: t.name, score: t.scores.chill.toFixed(3) })),
-      }
-    : undefined;
-
+  
   return NextResponse.json({
+    source: sourceUsed,  
+    scoring_mode: scoringMode,
     mode: mode ?? "none",
     stats,
     top_artists,
     top_genres,
-    examples,
     tracks: sorted, // contains scores + normalized features
-    debug: debugOut,
   });
 }
