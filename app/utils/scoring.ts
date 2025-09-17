@@ -6,7 +6,8 @@ export function clamp01(x: number) {
   return Math.max(0, Math.min(1, x));
 }
 
-export const norm = (x:number, a:number, b:number) => clamp01((x - a) / (b - a));
+export const norm = (x: number, a: number, b: number) =>
+  clamp01((x - a) / (b - a));
 
 function centerPref(x: number) {
   return clamp01(1 - Math.abs(x - 0.5) * 2);

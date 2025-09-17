@@ -1,12 +1,20 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { ensureAccessToken } from "@/lib/spotify";
-import { clamp01, minmax, norm, range, scoreTrackNorm, tieBreak } from "@/app/utils/scoring";
+import {
+  clamp01,
+  minmax,
+  norm,
+  range,
+  scoreTrackNorm,
+  tieBreak,
+} from "@/app/utils/scoring";
 import { Mood } from "@/app/types/mood";
+import { recentQuery } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
-type SourceParam = "auto" | "on_repeat" | "top" | "recent" | "repeat_derived"
+type SourceParam = "auto" | "on_repeat" | "top" | "recent" | "repeat_derived";
 
 async function readJSON(r: Response) {
   const t = await r.text().catch(() => "");
@@ -115,20 +123,25 @@ async function fetchTopTracksShortTerm(headers: Record<string, string>) {
 
 // ---------- route ----------
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const modeParam = (url.searchParams.get("mode") ?? "none").toLowerCase();
-  const sourceParam = (url.searchParams.get("source") ?? "auto") as SourceParam;
-  // offset helper (for playlist paging; 0-based)
-  const plOffset = Number(url.searchParams.get("pl_offset") ?? "0") || 0;
-  // page helper — 1 page = 50 playlists)
-  const plPage = Number(url.searchParams.get("pl_page") ?? "0") || 0;
-  const startOffset = plOffset || plPage * 50;
+  // validate params
+  const params = Object.fromEntries(new URL(req.url).searchParams);
+  const parsed = recentQuery.safeParse(params);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "bad_request", issues: parsed.error.issues },
+      { status: 400 },
+    );
+  }
+  const {
+    mode: modeParam, // "hype" | "focus" | "chill" | undefined
+    source: sourceParam = "auto", // "auto" | "on_repeat" | "top" | "recent" | "repeat_derived"
+    pl_offset = 0,
+    pl_page = 0,
+    or_id: orId,
+  } = parsed.data;
 
-  const mode: Mood | null = (["hype", "focus", "chill"] as const).includes(
-    modeParam as Mood,
-  )
-    ? (modeParam as Mood)
-    : null;
+  const startOffset = pl_offset || pl_page * 50;
+  const mode: Mood | null = modeParam ? (modeParam as Mood) : null;
 
   const cookie = cookies().get("spotify_tokens")?.value;
   if (!cookie)
@@ -157,7 +170,7 @@ export async function GET(req: Request) {
     const { tracks, rpStatsById: map } =
       await fetchRecentlyPlayedWithStats(headers);
     items = tracks;
-    rpStatsById = map; 
+    rpStatsById = map;
   } else if (sourceParam === "top") {
     items = await fetchTopTracksShortTerm(headers);
   } else if (sourceParam === "on_repeat") {
@@ -191,8 +204,7 @@ export async function GET(req: Request) {
     afRes && afRes.ok ? await readJSON(afRes) : { audio_features: [] };
   const featuresList: any[] = afJson?.audio_features ?? [];
   const featuresCount = (featuresList ?? []).filter(Boolean).length;
-const scoringMode = featuresCount > 0 ? "spotify_features" : "derived_recent";
-
+  const scoringMode = featuresCount > 0 ? "spotify_features" : "derived_recent";
 
   // build normalization ranges over THIS set
   const R = {
@@ -274,36 +286,39 @@ const scoringMode = featuresCount > 0 ? "spotify_features" : "derived_recent";
       ),
       speechN: minmax(f?.speechiness, R.speechiness.min, R.speechiness.max),
     };
-  
-  // did we actually get features for this track?
-  const hasFeatures = typeof f?.id === "string";
 
-  // recently-played stats (built earlier when source === "recent")
-  const rp = rpStatsById.get(t.id) ?? { count: 0, recency: 0 };
+    // did we actually get features for this track?
+    const hasFeatures = typeof f?.id === "string";
 
-  // simple metadata proxies
-  const popularity = typeof t?.popularity === "number" ? t.popularity : 50;
-  const popN = popularity / 100;
-  const durationMin = (t?.duration_ms ?? 180000) / 60000;
-  const durMid = 1 - Math.min(1, Math.abs(durationMin - 3.5) / 3.5); // best ~3.5m
+    // recently-played stats (built earlier when source === "recent")
+    const rp = rpStatsById.get(t.id) ?? { count: 0, recency: 0 };
 
-  // derived scores (non-zero even when audio-features are 0 or blocked)
-  const derived = {
-    // Hype: recent + popular
-    hype:  clamp01(0.5 * norm(rp.recency, 0, 3) + 0.5 * popN),
-    // Focus: mid-length + repeated a bit
-    focus: clamp01(0.6 * durMid + 0.4 * norm(rp.count, 0, 4)),
-    // Chill: less “hitty” + ok with longer songs
-    chill: clamp01(0.5 * (1 - popN) + 0.5 * norm(4.5 - Math.abs(durationMin - 4.5), 0, 4.5)),
-  };
+    // simple metadata proxies
+    const popularity = typeof t?.popularity === "number" ? t.popularity : 50;
+    const popN = popularity / 100;
+    const durationMin = (t?.duration_ms ?? 180000) / 60000;
+    const durMid = 1 - Math.min(1, Math.abs(durationMin - 3.5) / 3.5); // best ~3.5m
 
-  const scores = hasFeatures
-    ? {
-        hype:  scoreTrackNorm(featuresN, Mood.HYPE),
-        focus: scoreTrackNorm(featuresN, Mood.FOCUS),
-        chill: scoreTrackNorm(featuresN, Mood.CHILL),
-      }
-    : derived;
+    // derived scores (non-zero even when audio-features are 0 or blocked)
+    const derived = {
+      // Hype: recent + popular
+      hype: clamp01(0.5 * norm(rp.recency, 0, 3) + 0.5 * popN),
+      // Focus: mid-length + repeated a bit
+      focus: clamp01(0.6 * durMid + 0.4 * norm(rp.count, 0, 4)),
+      // Chill: less “hitty” + ok with longer songs
+      chill: clamp01(
+        0.5 * (1 - popN) +
+          0.5 * norm(4.5 - Math.abs(durationMin - 4.5), 0, 4.5),
+      ),
+    };
+
+    const scores = hasFeatures
+      ? {
+          hype: scoreTrackNorm(featuresN, Mood.HYPE),
+          focus: scoreTrackNorm(featuresN, Mood.FOCUS),
+          chill: scoreTrackNorm(featuresN, Mood.CHILL),
+        }
+      : derived;
 
     return {
       id: t?.id,
@@ -327,14 +342,15 @@ const scoringMode = featuresCount > 0 ? "spotify_features" : "derived_recent";
       return tieBreak(a, b, mode);
     });
   }
-  
+
   return NextResponse.json({
-    source: sourceUsed,  
+    source: sourceUsed,
     scoring_mode: scoringMode,
     mode: mode ?? "none",
     stats,
     top_artists,
     top_genres,
     tracks: sorted, // contains scores + normalized features
+    on_repeat_id: orId || null,
   });
 }
