@@ -87,6 +87,7 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json(validated.data);
   } catch (e) {
+    console.error(`LLM error ${e}`);
     return NextResponse.json(rulesFallback(input));
   }
 }
