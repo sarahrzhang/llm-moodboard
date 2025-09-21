@@ -1,6 +1,7 @@
 # LLM Moodboard 
 
-Micro-MVP: connect Spotify, fetch your top on-repeat, analyze with an LLM into structured JSON (mood tags, activities, energy band, captions, playlist titles, cover prompt).
+This project started as an “LLM Moodboard” prototype exploring Spotify API integrations, and later evolved into an OAuth & Data Validation Tool to demonstrate secure PKCE authentication, server-side validation, and monitoring hooks with Next.js/TypeScript.
+Micro-MVP: connect Spotify, fetch your top tracks, analyze with an LLM into structured JSON (mood tags, activities, energy band, captions, playlist titles, cover prompt).
 
 ## 1) Create a Spotify App 
 - Go to Spotify Developer Dashboard → Create App.
