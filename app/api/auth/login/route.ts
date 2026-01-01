@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { challengeFromVerifier, generateVerifier } from "@/lib/pkce";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   const clientId = process.env.SPOTIFY_CLIENT_ID!;
@@ -9,23 +10,17 @@ export async function GET() {
 
   const verifier = generateVerifier(64);
   const challenge = challengeFromVerifier(verifier);
-  // const isProd = process.env.NODE_ENV === "production";
-
-  cookies().set({
-    name: "pkce_verifier",
-    value: verifier,
-    httpOnly: true,
-    // secure: isProd,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 10 * 60,
-  });
 
   const scope = encodeURIComponent(
     "user-read-recently-played user-read-email user-top-read playlist-read-private",
   );
-  const authUrl = `https://accounts.spotify.com/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge_method=S256&code_challenge=${challenge}&scope=${scope}`;
 
+  // Encode the verifier in the state parameter so Spotify sends it back
+  // This is more reliable than cookies for cross-origin OAuth flows
+  const state = Buffer.from(JSON.stringify({ verifier })).toString("base64url");
+
+  const authUrl = `https://accounts.spotify.com/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge_method=S256&code_challenge=${challenge}&state=${state}&scope=${scope}`;
+
+  console.log("[LOGIN] Redirecting to Spotify with state");
   return NextResponse.redirect(authUrl);
 }

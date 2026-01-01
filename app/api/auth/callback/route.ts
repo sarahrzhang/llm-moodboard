@@ -1,11 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { createSession } from "@/lib/session";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
-  const verifier = cookies().get("pkce_verifier")?.value;
+  const state = url.searchParams.get("state");
+
+  // Extract verifier from state parameter
+  let verifier: string | undefined;
+  if (state) {
+    try {
+      const decoded = JSON.parse(Buffer.from(state, "base64url").toString());
+      verifier = decoded.verifier;
+    } catch (e) {
+      console.log("[CALLBACK] Failed to decode state:", e);
+    }
+  }
+
+  console.log("[CALLBACK] code:", !!code, "verifier:", !!verifier);
   if (!code || !verifier) {
+    console.log("[CALLBACK] Missing code or verifier, redirecting to home");
     return NextResponse.redirect(new URL("/", url.origin));
   }
 
@@ -28,29 +44,44 @@ export async function GET(req: NextRequest) {
   });
 
   if (!tokenRes.ok) {
+    console.log("[CALLBACK] Token exchange failed:", tokenRes.status);
     return NextResponse.redirect(new URL("/", url.origin));
   }
 
   const tokenJson = await tokenRes.json();
+  console.log("[CALLBACK] Got tokens successfully");
 
-  // store token JSON (access + refresh) in an httpOnly cookie (scaffold-level; consider a real session in prod)
-  cookies().set({
-    name: "spotify_tokens",
-    value: JSON.stringify({
-      access_token: tokenJson.access_token,
-      refresh_token: tokenJson.refresh_token,
-      expires_in: tokenJson.expires_in,
-      obtained_at: Date.now(),
-    }),
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 7 * 24 * 3600,
+  // Create session and store tokens in server-side session store
+  const sessionId = createSession({
+    access_token: tokenJson.access_token,
+    refresh_token: tokenJson.refresh_token,
+    expires_in: tokenJson.expires_in,
+    obtained_at: Date.now(),
   });
 
-  // clear verifier
-  cookies().set({ name: "pkce_verifier", value: "", maxAge: 0, path: "/" });
+  // Use HTML meta refresh to set cookie before redirect (more reliable than 307 redirect)
+  const isProd = process.env.NODE_ENV === "production";
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta http-equiv="refresh" content="0;url=/">
+        <title>Redirecting...</title>
+      </head>
+      <body>
+        <p>Authentication successful, redirecting...</p>
+      </body>
+    </html>
+  `;
 
-  return NextResponse.redirect(new URL("/", url.origin));
+  const response = new Response(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html',
+      'Set-Cookie': `session_id=${sessionId}; Path=/; HttpOnly; ${isProd ? "Secure; " : ""}SameSite=Lax; Max-Age=${7 * 24 * 3600}`,
+    },
+  });
+
+  console.log("[CALLBACK] Session created, returning HTML redirect");
+  return response;
 }

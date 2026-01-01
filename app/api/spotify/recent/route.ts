@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { ensureAccessToken } from "@/lib/spotify";
+import { getSession, updateSession } from "@/lib/session";
 import {
   clamp01,
   minmax,
@@ -13,6 +14,7 @@ import { Mood } from "@/app/types/mood";
 import { recentQuery } from "@/lib/validation";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type SourceParam = "auto" | "on_repeat" | "top" | "recent" | "repeat_derived";
 
@@ -143,21 +145,18 @@ export async function GET(req: Request) {
   const startOffset = pl_offset || pl_page * 50;
   const mode: Mood | null = modeParam ? (modeParam as Mood) : null;
 
-  const cookie = cookies().get("spotify_tokens")?.value;
-  if (!cookie)
+  const sessionId = cookies().get("session_id")?.value;
+  console.log("[RECENT] Has session_id cookie:", !!sessionId);
+  if (!sessionId)
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  let tokens = JSON.parse(cookie);
+  let tokens = getSession(sessionId);
+  console.log("[RECENT] Session found:", !!tokens);
+  if (!tokens)
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   tokens = await ensureAccessToken(tokens);
-  cookies().set({
-    name: "spotify_tokens",
-    value: JSON.stringify(tokens),
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 7 * 24 * 3600,
-  });
+  updateSession(sessionId, tokens);
 
   const headers = { Authorization: `Bearer ${tokens.access_token}` };
 
