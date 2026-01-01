@@ -5,6 +5,7 @@ import type { LLMOut, SnapshotInput } from "@/lib/schema";
 import { MoodBoard } from "@/components/MoodBoard";
 import { Track } from "./types/tracks";
 import { Mood } from "./types/mood";
+import { useWebSocket } from "@/hooks/useWebSocket";
 
 export default function Page() {
   const [loading, setLoading] = useState(false);
@@ -14,6 +15,9 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
   const [hasToken, setHasToken] = useState<boolean>(true);
   const [mood, setMood] = useState<Mood>(Mood.HYPE);
+
+  // ============= WEBSOCKET =============
+  const { send, status, responseText } = useWebSocket('ws://localhost:3001');
 
   // Sort & project to your old prop shape
   const visibleAlbums = useMemo(() => {
@@ -160,7 +164,28 @@ export default function Page() {
                 <span className="text-xs opacity-70 ml-2">Updating…</span>
               )}
             </div>
-
+            <div className="grid gap-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="opacity-70">WebSocket:</span>
+                <span className={`flex items-center gap-1.5 px-2 py-1 rounded ${status === 'Connected' ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+                  <span className="text-xs">●</span>
+                  {status}
+                </span>
+                {status === 'Connected' && (
+                  <button
+                    onClick={() => send('hello this is a test msg from client')}
+                    className="px-2 py-1 rounded bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition text-xs"
+                  >
+                    Test Send
+                  </button>
+                )}
+              </div>
+              {responseText && (
+                <div className="text-xs bg-white/5 border border-white/10 rounded p-2">
+                  <span className="opacity-70">Last message:</span> {responseText}
+                </div>
+              )}
+            </div>
             <div className="flex items-center gap-3">
               <button
                 disabled={loading || !snap}
