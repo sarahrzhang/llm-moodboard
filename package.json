@@ -8,15 +8,19 @@
     "start": "next start",
     "lint": "eslint \"app/**/*.{ts,tsx,js,jsx}\"",
     "lint:fix": "eslint \"app/**/*.{ts,tsx,js,jsx}\" --fix",
-    "format": "npx prettier --write \"**/*.{js,ts,jsx,tsx,cjs,cts,mjs,mts,vue,astro,ml,css,scss,sass}\""
+    "format": "npx prettier --write \"**/*.{js,ts,jsx,tsx,cjs,cts,mjs,mts,vue,astro,ml,css,scss,sass}\"",
+    "ws": "npx ts-node server/websocket.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
     "@types/ws": "^8.18.1",
-    "next": "14.2.5",
+    "dotenv": "^17.3.1",
+    "next": "^16.2.1",
+    "openai": "^6.33.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "ws": "^8.18.3",
-    "zod": "3.23.8"
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",

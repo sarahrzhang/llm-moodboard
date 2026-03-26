@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import type { LLMOut, SnapshotInput } from "@/lib/schema";
+import type { SnapshotInput } from "@/lib/schema";
 import { MoodBoard } from "@/components/MoodBoard";
 import { Track } from "./types/tracks";
 import { Mood } from "./types/mood";
@@ -11,13 +11,16 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [snap, setSnap] = useState<SnapshotInput | null>(null);
   const [albums, setAlbums] = useState<Track[]>([]);
-  const [out, setOut] = useState<LLMOut | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasToken, setHasToken] = useState<boolean>(true);
   const [mood, setMood] = useState<Mood>(Mood.HYPE);
 
   // ============= WEBSOCKET =============
-  const { send, status, responseText } = useWebSocket('ws://localhost:3001');
+  const { status, responseText, isStreaming, startAnalysis } = useWebSocket('ws://localhost:3001');
+
+  const buildPrompt = (input: SnapshotInput, currentMood: Mood) => {
+    return `You are a music mood analyst. The user's current mood filter is "${currentMood}". Analyze this listening snapshot and describe their music taste, energy, and vibe in a few sentences. Be specific and avoid buzzwords.\n\n${JSON.stringify(input)}`;
+  };
 
   // Sort & project to your old prop shape
   const visibleAlbums = useMemo(() => {
@@ -80,32 +83,6 @@ export default function Page() {
     })();
   }, [mood]); // watching mood for changes
 
-  const analyze = async () => {
-    if (!snap) return;
-    setLoading(true);
-    setError(null);
-    try {
-      // keep your lightweight “mood” tweak before sending to /api/analyze
-      const tweak = { ...snap };
-      if (mood === "focus")
-        tweak.stats.energy_avg = Math.max(0, tweak.stats.energy_avg - 0.2);
-      if (mood === "chill") {
-        tweak.stats.energy_avg = Math.max(0, tweak.stats.energy_avg - 0.3);
-        tweak.stats.valence_avg = Math.max(0, tweak.stats.valence_avg - 0.05);
-      }
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(tweak),
-      });
-      const j = await res.json();
-      setOut(j);
-    } catch {
-      setError("Analysis failed");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const login = () => {
     window.location.href = "/api/auth/login";
@@ -164,46 +141,28 @@ export default function Page() {
                 <span className="text-xs opacity-70 ml-2">Updating…</span>
               )}
             </div>
-            <div className="grid gap-2 text-sm">
-              <div className="flex items-center gap-2">
-                <span className="opacity-70">WebSocket:</span>
-                <span className={`flex items-center gap-1.5 px-2 py-1 rounded ${status === 'Connected' ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
-                  <span className="text-xs">●</span>
-                  {status}
-                </span>
-                {status === 'Connected' && (
-                  <button
-                    onClick={() => send('hello this is a test msg from client')}
-                    className="px-2 py-1 rounded bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition text-xs"
-                  >
-                    Test Send
-                  </button>
-                )}
-              </div>
-              {responseText && (
-                <div className="text-xs bg-white/5 border border-white/10 rounded p-2">
-                  <span className="opacity-70">Last message:</span> {responseText}
-                </div>
-              )}
-            </div>
             <div className="flex items-center gap-3">
               <button
-                disabled={loading || !snap}
-                onClick={analyze}
+                disabled={!snap || isStreaming || status !== 'Connected'}
+                onClick={() => snap && startAnalysis(buildPrompt(snap, mood))}
                 className="px-3 py-2 rounded bg-white/10 hover:bg-white/20 transition disabled:opacity-60"
               >
-                Analyze with AI
+                {isStreaming ? 'Analyzing…' : 'Analyze with AI'}
               </button>
-              {loading && (
-                <span className="text-sm opacity-70 animate-pulse">
-                  Working…
-                </span>
-              )}
+              <span className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded ${status === 'Connected' ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+                <span>●</span>
+                {status}
+              </span>
             </div>
+            {responseText && (
+              <div className="text-sm bg-white/5 border border-white/10 rounded p-3 whitespace-pre-wrap leading-relaxed">
+                {responseText}{isStreaming && <span className="animate-pulse">▍</span>}
+              </div>
+            )}
 
             {error && <div className="text-sm text-red-300">{error}</div>}
 
-            <MoodBoard data={out} albums={visibleAlbums} mode={mood} />
+            <MoodBoard data={null} albums={visibleAlbums} mode={mood} />
           </div>
         )}
 
